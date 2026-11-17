@@ -5,6 +5,10 @@ services:
       - "8000:8000"
     environment:
       - APP_ENV=local
+      # 数据集市的分区、事实与迁移记录落在挂载卷里，重启后仍可按版本回查。
+      - MART_DB_PATH=/srv/app/var/data_mart.sqlite3
+    volumes:
+      - mart-data:/srv/app/var
   frontend:
     build: ./frontend
     ports:
@@ -14,3 +18,6 @@ services:
       VITE_PROXY_TARGET: http://backend:8000
     depends_on:
       - backend
+
+volumes:
+  mart-data:

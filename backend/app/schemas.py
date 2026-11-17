@@ -35,6 +35,25 @@ class ActionPayload(BaseModel):
     remark: str | None = None
 
 
+class MartMigrationPayload(BaseModel):
+    """集市分区迁移的版本输入：只描述来源与目标，具体批次由服务解析现有记录生成。"""
+
+    table_id: int
+    mode: str = "影子分区切换"
+    source: str = "旧版集市分区"
+    source_version: str | None = None
+    target_version: str | None = None
+    batch_size: int = 2
+    requested_by: str = ""
+
+
+class MartPublishPayload(BaseModel):
+    """切换集市表可见版本，看板与导出随后只读该版本分区。"""
+
+    version: str
+    remark: str | None = None
+
+
 
 class MetricDefEntry(BaseModel):
     """指标明细结构。"""

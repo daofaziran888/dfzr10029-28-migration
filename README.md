@@ -68,6 +68,61 @@ npm run dev
 | 数据导出 | `export` | 导出任务 | 任务编号、导出对象、导出格式 |
 | 数据审计 | `audit` | 审计记录 | 记录编号、操作类型、操作人 |
 
+## 数据集市分区迁移
+
+存量集市表事实数据原来按日期目录存放（`/warehouse/<表编号>/dt=YYYY-MM-DD`），
+新查询要求版本化分区（`/warehouse/<表编号>/version=<v>/dt=YYYY-MM-DD`）。
+迁移能力在 `backend/app/services/data_mart.py`，持久化在
+`backend/app/services/mart_repository.py`（SQLite，默认 `backend/var/data_mart.sqlite3`，
+可用 `MART_DB_PATH` 覆盖）。
+
+- **数据入口**：旧版集市分区与存量事实数据；预览迁移时只接受这两个入口。
+- **版本输入**：预览批次时传入 `target_version`；被占用的版本不复用，按既有版本次序
+  顺延（`version_boundary` 记录来源/目标/批次，冲突时 `reserved=true`）。
+- **处理方式**：解析现有分区与事实 → 生成迁移批次 → 回填版本化分区与事实行
+  （事实粒度 `grain_key`、关联维度 `dims`、度量 `measures` 原样保留）→ 落成版本化分区集市表。
+- **两种模式**的可见版本与回滚范围不同，记录在迁移记录上：
+  - `影子分区切换`：回填期间旧目录继续对外服务，完成后一次性切换；回滚撤掉目标版本全量分区。
+  - `原位批量迁移`：已迁移批次逐批可见（同一日期只命中一个版本）；回滚只恢复已迁移批次。
+- **同步切换**：`mart_table.current_version` 与分区状态在同一事务内更新，看板按
+  `/api/data_mart/visible` 读取，不会同时读到旧目录和新分区。
+- **中断回滚**：执行可用 `max_batches` / `fail_at_batch` 制造中断，之后按 checkpoint
+  续跑或按模式回滚。
+- **核对**：`POST /api/data_mart/migrations/{id}/reconcile` 比对源版本与目标版本的
+  事实粒度、关联维度、度量结果，并把结论写回迁移记录；`GET /api/data_mart/reconcile`
+  按同一版本回查，重启后仍可读到。
+- **并发**：同一表同一批次并发提交时，服务层用互斥事务 + 状态守卫保证只有唯一确认结果。
+
+主要接口：
+
+```text
+GET  /api/data_mart/tables                         集市表 + 当前版本 + 进行中的迁移
+GET  /api/data_mart/versions?table_id=&version=    版本历史 / 按版本跨表回查迁移记录
+GET  /api/data_mart/partitions?table_id=&version=  分区列表（旧目录 / 版本化）
+GET  /api/data_mart/facts?table_id=&version=       事实行（粒度、维度、度量）
+GET  /api/data_mart/visible?table_id=              看板可见口径
+POST /api/data_mart/migrations                     预览迁移批次（版本输入）
+POST /api/data_mart/migrations/{id}/execute        执行 / 断点续跑
+POST /api/data_mart/migrations/{id}/rollback       按模式回滚
+POST /api/data_mart/migrations/{id}/reconcile      核对并持久化
+GET  /api/data_mart/reconcile?table_id=&version=   按版本回查核对结果
+POST /api/data_mart/tables/{id}/publish            切换看板可见版本
+GET  /api/data_mart/export?table_id=&version=      导出（保留分区版本与事实粒度）
+```
+
+库结构版本为 3；打开 v1/v2 历史库时会按 `schema_meta.schema_version` 逐级补列，
+历史分区、事实和迁移记录原样保留。
+
+## 测试
+
+```bash
+# 后端：迁移、回滚、核对、并发、旧库升级
+cd backend && .venv/bin/python -m unittest discover -s tests -v
+
+# 前端 E2E（需先启动 backend 与 frontend dev server）
+cd frontend && npx playwright test
+```
+
 ## 约定
 
 - 每个模块的前端页面在 `frontend/src/views/<模块>/index.vue`，后端接口在

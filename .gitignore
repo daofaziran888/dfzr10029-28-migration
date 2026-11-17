@@ -114,3 +114,9 @@ desktop.ini
 !**/.env.example
 !.env.example
 # END S11 LOCAL SNAPSHOT EXCLUSIONS
+
+# ===== 数据集市本地库 =====
+backend/var/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
